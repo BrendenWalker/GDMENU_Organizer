@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace GDMENUOrganizer.Core
 {
     public static class Constants
@@ -11,7 +13,12 @@ namespace GDMENUOrganizer.Core
         public const string GdiShrinkBlacklistFile = "gdishrink_blacklist.txt";
         public const string PS1GameDBFile = "gamedb.json";
         public const string DefaultImageFileName = "disc";
-        public const string Version = "v2.0.1";
+        /// <summary>App version from MSBuild AppVersion / InformationalVersion (set from git tag in CI).</summary>
+        public static string Version { get; } =
+            typeof(Constants).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+            ?? "dev";
         public static readonly string k_UnknownDiscNumber = "?/?";
         public static readonly string TempFolderName = "GDMENUOrganizer";
     }

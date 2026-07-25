@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- Overridden by CI via -p:AppVersion=vX.Y.Z from the git tag. -->
+    <AppVersion Condition="'$(AppVersion)' == ''">dev</AppVersion>
+    <InformationalVersion>$(AppVersion)</InformationalVersion>
+    <!-- Keep UI version equal to the tag (no +gitsha suffix). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

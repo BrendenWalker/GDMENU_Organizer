@@ -81,6 +81,7 @@ jobs:
             -r "${{ matrix.rid }}"
             -o publish
             --self-contained ${{ matrix.self_contained }}
+            -p:AppVersion="${{ steps.version.outputs.version }}"
           )
           if [ "${{ matrix.self_contained }}" = "true" ]; then
             ARGS+=(

@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish (e.g. v2.1.0). Leave empty to dry-run without creating a release."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  PROJECT: src/GDMENUOrganizer.AvaloniaUI/GDMENUOrganizer.AvaloniaUI.csproj
+
+jobs:
+  build:
+    name: Build ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows: framework-dependent (needs .NET 10 Desktop Runtime)
+          - os: windows-latest
+            rid: win-x64
+            self_contained: false
+            archive: zip
+          # Linux / macOS: self-contained so users do not need a separate runtime install
+          - os: ubuntu-latest
+            rid: linux-x64
+            self_contained: true
+            archive: tar.gz
+          - os: macos-latest
+            rid: osx-arm64
+            self_contained: true
+            archive: tar.gz
+          # Cross-compile Intel macOS from the Apple Silicon runner
+          - os: macos-latest
+            rid: osx-x64
+            self_contained: true
+            archive: tar.gz
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          cache: true
+          cache-dependency-path: src/**/*.csproj
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
+            VERSION="${{ inputs.tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+
+      - name: Publish
+        shell: bash
+        run: |
+          ARGS=(
+            "${{ env.PROJECT }}"
+            -c Release
+            -r "${{ matrix.rid }}"
+            -o publish
+            --self-contained ${{ matrix.self_contained }}
+          )
+          if [ "${{ matrix.self_contained }}" = "true" ]; then
+            ARGS+=(
+              -p:PublishSingleFile=true
+              -p:IncludeNativeLibrariesForSelfExtract=true
+            )
+          fi
+          dotnet publish "${ARGS[@]}"
+
+      - name: Make Unix binary executable
+        if: runner.os != 'Windows'
+        run: chmod +x publish/GDMENUOrganizer
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path publish\* -DestinationPath "GDMENUOrganizer.${{ steps.version.outputs.version }}-${{ matrix.rid }}.zip"
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          tar -czf "GDMENUOrganizer.${{ steps.version.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GDMENUOrganizer-${{ matrix.rid }}
+          path: GDMENUOrganizer.${{ steps.version.outputs.version }}-${{ matrix.rid }}.*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.tag != ''
+    timeout-minutes: 15
+
+    steps:
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: GDMENUOrganizer-*
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lah dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: GDMENU Organizer ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: true
+          files: dist/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

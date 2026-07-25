@@ -171,7 +171,10 @@ namespace GDMENUOrganizer
                                 data.Length
                             );
 
-                        writeableBitmap.Save(memory);
+                        writeableBitmap.Save(
+                            memory,
+                            new Avalonia.Media.Imaging.PngBitmapEncoderOptions()
+                        );
                         memory.Position = 0;
                         GdTexture = new Avalonia.Media.Imaging.Bitmap(memory);
                         LabelText = null;

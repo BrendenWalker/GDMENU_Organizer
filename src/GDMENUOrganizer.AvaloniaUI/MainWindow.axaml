@@ -118,7 +118,7 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox Grid.Column="0" Height="1" Watermark="Inform temporary folder"
+                        <TextBox Grid.Column="0" Height="1" PlaceholderText="Inform temporary folder"
                                  Text="{Binding TempFolder}" />
                         <Button Grid.Column="1" Width="36" Click="ButtonFolder_Click" ToolTip.Tip="Select Folder">
                             <ContentControl Content="{StaticResource ViewOpenFolder}" />

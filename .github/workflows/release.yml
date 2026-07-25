@@ -49,10 +49,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           cache: true
@@ -108,7 +108,7 @@ jobs:
           tar -czf "GDMENUOrganizer.${{ steps.version.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: GDMENUOrganizer-${{ matrix.rid }}
           path: GDMENUOrganizer.${{ steps.version.outputs.version }}-${{ matrix.rid }}.*
@@ -140,7 +140,7 @@ jobs:
           fi
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: GDMENUOrganizer-*

@@ -16,7 +16,6 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
-using AvaloniaEdit.Utils;
 using GDMENUOrganizer.Core;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Models;
@@ -285,25 +284,24 @@ namespace GDMENUOrganizer.AvaloniaUI
             if (Manager.SdPath == null)
                 return;
 
-            // Legacy IDataObject drag-drop API. Migration to the new DataTransfer/DataFormat
-            // API is deferred to the Avalonia 12 upgrade.
-#pragma warning disable CS0618
-            if (e.Data.Contains(DataFormats.FileNames))
+            if (e.DataTransfer.Contains(DataFormat.File))
             {
                 IsBusy = true;
                 var invalid = new List<string>();
 
                 try
                 {
-                    foreach (var o in e.Data.GetFiles()?.Select(x => x.Name) ?? new List<string>())
+                    foreach (var item in e.DataTransfer.TryGetFiles() ?? [])
                     {
+                        var path = item.Path.LocalPath;
+
                         try
                         {
-                            Manager.ItemList.Add(await ImageHelper.CreateGdItemAsync(o));
+                            Manager.ItemList.Add(await ImageHelper.CreateGdItemAsync(path));
                         }
                         catch
                         {
-                            invalid.Add(o);
+                            invalid.Add(path);
                         }
                     }
 
@@ -322,7 +320,6 @@ namespace GDMENUOrganizer.AvaloniaUI
                     IsBusy = false;
                 }
             }
-#pragma warning restore CS0618
         }
 
         private async void ButtonSaveChanges_Click(object sender, RoutedEventArgs e)

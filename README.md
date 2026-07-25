@@ -42,9 +42,9 @@ openMenu can show custom icons, box art, and text per title, but needs extra DAT
 Place openMenu DAT files under this app's `tools\openMenu\menu_data` folder.  
 Get them from mrneo240's repos: [imagedb](https://github.com/mrneo240/openMenu_imagedb) and [metadb](https://github.com/mrneo240/openMenu_metadb).
 
-### Windows: .NET 6 Desktop Runtime
+### Windows: .NET 10 Desktop Runtime
 
-Install the [.NET 6 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/6.0/runtime) for your system.
+Install the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0/runtime) for your system.
 
 ![Dot Net Runtime](docs/dotnetruntime.png)
 
@@ -57,7 +57,7 @@ Install the [.NET 6 Desktop Runtime](https://dotnet.microsoft.com/download/dotne
 
 ### Linux x64 (CLI)
 
-1. Install the .NET 6 SDK ([Install .NET on Linux](https://learn.microsoft.com/en-us/dotnet/core/install/linux))
+1. Install the .NET 10 SDK ([Install .NET on Linux](https://learn.microsoft.com/en-us/dotnet/core/install/linux))
 2. Clone this repository and `cd` into `src`
 3. Publish:
 
@@ -74,18 +74,18 @@ dotnet publish GDMENUOrganizer.AvaloniaUI/GDMENUOrganizer.AvaloniaUI.csproj -c R
 4. Run the binary from the publish output, for example:
 
 ```bash
-./GDMENUOrganizer.AvaloniaUI/bin/Release/net6.0/linux-x64/publish/GDMENUOrganizer
+./GDMENUOrganizer.AvaloniaUI/bin/Release/net10.0/linux-x64/publish/GDMENUOrganizer
 ```
 
 ### macOS
 
-1. Install [.NET Runtime 6.0](https://dotnet.microsoft.com/download/dotnet/6.0/runtime) and the SDK (`brew install dotnet`)
+1. Install [.NET Runtime 10.0](https://dotnet.microsoft.com/download/dotnet/10.0/runtime) and the SDK (`brew install dotnet`)
 2. Build and run:
 
 ```bash
 cd src/
 dotnet publish GDMENUOrganizer.AvaloniaUI/GDMENUOrganizer.AvaloniaUI.csproj -c Release
-cd GDMENUOrganizer.AvaloniaUI/bin/Release/net6.0/publish/
+cd GDMENUOrganizer.AvaloniaUI/bin/Release/net10.0/publish/
 ./GDMENUOrganizer
 ```
 

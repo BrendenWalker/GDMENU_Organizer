@@ -42,6 +42,16 @@ namespace GDMENUOrganizer
         private GdItem item;
         public new event PropertyChangedEventHandler? PropertyChanged;
 
+        // Parameterless constructor required by the Avalonia XAML runtime loader/designer.
+        // Real usage goes through InfoWindow(GdItem); this path never opens the window.
+        public InfoWindow()
+        {
+            InitializeComponent();
+            item = null!;
+            FileInfo = string.Empty;
+            IpInfo = string.Empty;
+        }
+
         public InfoWindow(GdItem item)
         {
             InitializeComponent();
@@ -115,7 +125,7 @@ namespace GDMENUOrganizer
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
-        private async void InfoWindow_Opened(object sender, EventArgs e)
+        private async void InfoWindow_Opened(object? sender, EventArgs e)
         {
             await Task.Delay(100);
             try

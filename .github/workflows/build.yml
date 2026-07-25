@@ -1,0 +1,39 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+          cache: true
+          cache-dependency-path: src/**/*.csproj
+
+      - name: Restore dependencies
+        run: dotnet restore src/GDMENUOrganizer.sln
+
+      - name: Build
+        run: dotnet build src/GDMENUOrganizer.sln --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test src/GDMENUOrganizer.sln --configuration Release --no-build

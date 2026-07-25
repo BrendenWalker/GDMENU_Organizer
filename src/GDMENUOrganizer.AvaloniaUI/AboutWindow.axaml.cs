@@ -10,7 +10,6 @@ using System.Runtime.CompilerServices;
 using GDMENUOrganizer.Core;
 using System.Threading;
 using System.Net.Http;
-using System.Net;
 using System.Text.Json;
 using System.Runtime.InteropServices;
 using Avalonia.Input;
@@ -39,7 +38,6 @@ namespace GDMENUOrganizer
                     _Client = new HttpClient();
                     _Client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github.v3+json");
                     _Client.DefaultRequestHeaders.UserAgent.ParseAdd(@"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:84.0) Gecko/20100101 Firefox/84.0");
-                    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12;
                 }
                 return _Client;
             }

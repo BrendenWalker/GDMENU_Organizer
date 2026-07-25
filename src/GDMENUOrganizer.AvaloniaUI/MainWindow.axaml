@@ -97,7 +97,7 @@
                     <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                               ItemsSource="{Binding DriveList, Mode=OneWay}"
                               SelectedItem="{Binding SelectedDrive}"
-                              ToolTip.Tip="{Binding Path=SelectedDrive.VolumeLabel, Mode=OneWay}" />
+                              ToolTip.Tip="{Binding SelectedDriveVolumeLabel, Mode=OneWay}" />
                     <Button Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Center"
                             ToolTip.Tip="Refresh Drive List" Click="ButtonRefreshDrive_Click">
                         <ContentControl Content="{StaticResource ViewRefresh}" />

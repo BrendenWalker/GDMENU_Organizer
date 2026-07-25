@@ -15,6 +15,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using AvaloniaEdit.Utils;
 using GDMENUOrganizer.Core;
 using MsBox.Avalonia;
@@ -57,8 +58,11 @@ namespace GDMENUOrganizer.AvaloniaUI
                 Manager.SdPath = value?.RootDirectory.ToString();
                 Filter = null;
                 RaisePropertyChanged();
+                RaisePropertyChanged(nameof(SelectedDriveVolumeLabel));
             }
         }
+
+        public string SelectedDriveVolumeLabel => SelectedDrive?.VolumeLabel ?? string.Empty;
 
         private NPath _tempFolder;
 
@@ -106,7 +110,7 @@ namespace GDMENUOrganizer.AvaloniaUI
             }
         }
 
-        private readonly List<FileDialogFilter> _fileFilterList;
+        private readonly FilePickerFileType _dreamcastFileType;
 
         public MainWindow()
         {
@@ -122,13 +126,11 @@ namespace GDMENUOrganizer.AvaloniaUI
                 compressedFileFormats
             );
             var fullList = Manager.SupportedImageFormats.Concat(compressedFileFormats).ToArray();
-            _fileFilterList = new List<FileDialogFilter>
+            _dreamcastFileType = new FilePickerFileType(
+                $"Dreamcast Game ({string.Join("; ", fullList.Select(x => $"*{x}"))})"
+            )
             {
-                new()
-                {
-                    Name = $"Dreamcast Game ({string.Join("; ", fullList.Select(x => $"*{x}"))})",
-                    Extensions = fullList.Select(x => x.Substring(1)).ToList()
-                }
+                Patterns = fullList.Select(x => $"*{x}").ToArray()
             };
 
             this.Opened += (ss, ee) =>
@@ -283,6 +285,9 @@ namespace GDMENUOrganizer.AvaloniaUI
             if (Manager.SdPath == null)
                 return;
 
+            // Legacy IDataObject drag-drop API. Migration to the new DataTransfer/DataFormat
+            // API is deferred to the Avalonia 12 upgrade.
+#pragma warning disable CS0618
             if (e.Data.Contains(DataFormats.FileNames))
             {
                 IsBusy = true;
@@ -317,6 +322,7 @@ namespace GDMENUOrganizer.AvaloniaUI
                     IsBusy = false;
                 }
             }
+#pragma warning restore CS0618
         }
 
         private async void ButtonSaveChanges_Click(object sender, RoutedEventArgs e)
@@ -349,12 +355,23 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private async void ButtonFolder_Click(object sender, RoutedEventArgs e)
         {
-            var folderDialog = new OpenFolderDialog { Title = "Select Temporary Folder" };
+            var options = new FolderPickerOpenOptions
+            {
+                Title = "Select Temporary Folder",
+                AllowMultiple = false
+            };
 
             if (await TempFolder.DirectoryExistsAsync())
-                folderDialog.Directory = TempFolder.ToString();
+            {
+                var startFolder = await StorageProvider.TryGetFolderFromPathAsync(
+                    TempFolder.ToString()
+                );
+                if (startFolder != null)
+                    options.SuggestedStartLocation = startFolder;
+            }
 
-            var selectedFolder = await folderDialog.ShowAsync(this);
+            var folders = await StorageProvider.OpenFolderPickerAsync(options);
+            var selectedFolder = folders.FirstOrDefault()?.TryGetLocalPath();
             if (!string.IsNullOrEmpty(selectedFolder))
                 TempFolder = selectedFolder;
         }
@@ -794,19 +811,25 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private async void ButtonAddGames_Click(object sender, RoutedEventArgs e)
         {
-            var fileDialog = new OpenFileDialog
-            {
-                Title = "Select File(s)",
-                AllowMultiple = true,
-                Filters = _fileFilterList
-            };
+            var files = await StorageProvider.OpenFilePickerAsync(
+                new FilePickerOpenOptions
+                {
+                    Title = "Select File(s)",
+                    AllowMultiple = true,
+                    FileTypeFilter = new[] { _dreamcastFileType }
+                }
+            );
 
-            var files = await fileDialog.ShowAsync(this);
-            if (files != null && files.Any())
+            var paths = files
+                .Select(f => f.TryGetLocalPath())
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToArray();
+
+            if (paths.Length > 0)
             {
                 IsBusy = true;
 
-                var invalid = await Manager.AddGames(files);
+                var invalid = await Manager.AddGames(paths);
 
                 if (invalid.Any())
                     await MessageBoxManager
@@ -909,14 +932,16 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private async void ButtonExportList_Click(object sender, RoutedEventArgs eventArgs)
         {
-            var saveDialog = new SaveFileDialog
-            {
-                Filters =
+            var storageFile = await StorageProvider.SaveFilePickerAsync(
+                new FilePickerSaveOptions
                 {
-                    new FileDialogFilter { Name = "JSON File", Extensions = { "json" } }
+                    FileTypeChoices = new[]
+                    {
+                        new FilePickerFileType("JSON File") { Patterns = new[] { "*.json" } }
+                    }
                 }
-            };
-            var file = await saveDialog.ShowAsync(this);
+            );
+            var file = storageFile?.TryGetLocalPath();
             if (file == null)
                 return;
 
@@ -926,15 +951,17 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private async void ButtonImportList_Click(object sender, RoutedEventArgs eventArgs)
         {
-            var openDialog = new OpenFileDialog
-            {
-                AllowMultiple = false,
-                Filters =
+            var files = await StorageProvider.OpenFilePickerAsync(
+                new FilePickerOpenOptions
                 {
-                    new FileDialogFilter { Name = "JSON File", Extensions = { "json" } }
+                    AllowMultiple = false,
+                    FileTypeFilter = new[]
+                    {
+                        new FilePickerFileType("JSON File") { Patterns = new[] { "*.json" } }
+                    }
                 }
-            };
-            var file = (await openDialog.ShowAsync(this))?.FirstOrDefault() ?? null;
+            );
+            var file = files.FirstOrDefault()?.TryGetLocalPath();
             if (file == null)
                 return;
 
@@ -964,15 +991,17 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private async void ButtonErrorReport_Click(object sender, RoutedEventArgs eventArgs)
         {
-            var saveDialog = new SaveFileDialog
-            {
-                Filters =
+            var storageFile = await StorageProvider.SaveFilePickerAsync(
+                new FilePickerSaveOptions
                 {
-                    new FileDialogFilter { Name = "Text File", Extensions = { "txt" } }
+                    FileTypeChoices = new[]
+                    {
+                        new FilePickerFileType("Text File") { Patterns = new[] { "*.txt" } }
+                    }
                 }
-            };
+            );
 
-            var file = await saveDialog.ShowAsync(this);
+            var file = storageFile?.TryGetLocalPath();
             if (file == null)
                 return;
 

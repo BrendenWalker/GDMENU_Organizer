@@ -139,7 +139,6 @@ namespace GDMENUOrganizer.Core
         {
             _gdiShrinkPath = Path.Combine(_currentAppPath, "tools", "gdishrink.exe");
             //ipbinPath = Path.Combine(currentAppPath, "tools", "IP.BIN");
-            PlayStationDB.LoadFrom(Constants.PS1GameDBFile);
         }
 
         public async Task LoadItemsFromCard()

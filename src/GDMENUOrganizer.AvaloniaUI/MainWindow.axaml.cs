@@ -46,6 +46,7 @@ namespace GDMENUOrganizer.AvaloniaUI
         }
 
         private DriveInfo _driveInfo;
+        private string _selectedDriveVolumeLabel = string.Empty;
 
         public DriveInfo SelectedDrive
         {
@@ -56,12 +57,15 @@ namespace GDMENUOrganizer.AvaloniaUI
                 Manager.ItemList.Clear();
                 Manager.SdPath = value?.RootDirectory.ToString();
                 Filter = null;
+                _selectedDriveVolumeLabel = string.Empty;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(SelectedDriveVolumeLabel));
+                if (value != null)
+                    _ = UpdateVolumeLabelAsync(value);
             }
         }
 
-        public string SelectedDriveVolumeLabel => SelectedDrive?.VolumeLabel ?? string.Empty;
+        public string SelectedDriveVolumeLabel => _selectedDriveVolumeLabel;
 
         private NPath _tempFolder;
 
@@ -72,6 +76,20 @@ namespace GDMENUOrganizer.AvaloniaUI
             {
                 _tempFolder = value;
                 RaisePropertyChanged();
+                PersistUserSettings();
+            }
+        }
+
+        private NPath _libraryPath;
+
+        private NPath LibraryPath
+        {
+            get => _libraryPath;
+            set
+            {
+                _libraryPath = value;
+                RaisePropertyChanged();
+                PersistUserSettings();
             }
         }
 
@@ -94,6 +112,7 @@ namespace GDMENUOrganizer.AvaloniaUI
             {
                 Manager.MenuKindSelected = value;
                 RaisePropertyChanged();
+                PersistUserSettings();
             }
         }
 
@@ -110,6 +129,7 @@ namespace GDMENUOrganizer.AvaloniaUI
         }
 
         private readonly FilePickerFileType _dreamcastFileType;
+        private bool _loadingUserSettings;
 
         public MainWindow()
         {
@@ -132,9 +152,11 @@ namespace GDMENUOrganizer.AvaloniaUI
                 Patterns = fullList.Select(x => $"*{x}").ToArray()
             };
 
-            this.Opened += (ss, ee) =>
+            this.Opened += async (ss, ee) =>
             {
-                FillDriveList();
+                // Warm PS1 DB off the UI thread; only needed for Bleem/PS1 discs.
+                _ = Task.Run(PlayStationDB.EnsureLoaded);
+                await FillDriveListAsync();
             };
 
             this.Closing += MainWindow_Closing;
@@ -161,12 +183,43 @@ namespace GDMENUOrganizer.AvaloniaUI
             )
                 Manager.TruncateMenuGdi = truncateMenuGDI;
 
-            TempFolder = Path.GetTempPath();
+            ApplyUserSettings(UserSettings.Load());
             Title = "GDMENU Organizer " + Constants.Version;
 
             //showAllDrives = true;
 
             DataContext = this;
+        }
+
+        private void ApplyUserSettings(UserSettings settings)
+        {
+            _loadingUserSettings = true;
+            try
+            {
+                TempFolder = string.IsNullOrWhiteSpace(settings.TempFolder)
+                    ? Path.GetTempPath()
+                    : settings.TempFolder;
+                LibraryPath = settings.LibraryPath ?? string.Empty;
+                if (settings.MenuKind != MenuKind.None)
+                    MenuKindSelected = settings.MenuKind;
+            }
+            finally
+            {
+                _loadingUserSettings = false;
+            }
+        }
+
+        private void PersistUserSettings()
+        {
+            if (_loadingUserSettings)
+                return;
+
+            new UserSettings
+            {
+                LibraryPath = LibraryPath?.ToString() ?? string.Empty,
+                TempFolder = TempFolder?.ToString() ?? string.Empty,
+                MenuKind = MenuKindSelected
+            }.Save();
         }
 
         private void InitializeComponent()
@@ -195,7 +248,10 @@ namespace GDMENUOrganizer.AvaloniaUI
             if (IsBusy)
                 e.Cancel = true;
             else
+            {
+                PersistUserSettings();
                 Manager.ItemList.CollectionChanged -= ItemList_CollectionChanged; //release events
+            }
         }
 
         private void RaisePropertyChanged([CallerMemberName] string propertyName = "")
@@ -232,6 +288,7 @@ namespace GDMENUOrganizer.AvaloniaUI
             finally
             {
                 RaisePropertyChanged(nameof(MenuKindSelected));
+                PersistUserSettings();
                 IsBusy = false;
             }
         }
@@ -384,6 +441,46 @@ namespace GDMENUOrganizer.AvaloniaUI
             );
         }
 
+        private async void ButtonLibraryFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var options = new FolderPickerOpenOptions
+            {
+                Title = "Select Library Folder",
+                AllowMultiple = false
+            };
+
+            if (
+                !string.IsNullOrEmpty(LibraryPath?.ToString())
+                && await LibraryPath.DirectoryExistsAsync()
+            )
+            {
+                var startFolder = await StorageProvider.TryGetFolderFromPathAsync(
+                    LibraryPath.ToString()
+                );
+                if (startFolder != null)
+                    options.SuggestedStartLocation = startFolder;
+            }
+
+            var folders = await StorageProvider.OpenFolderPickerAsync(options);
+            var selectedFolder = folders.FirstOrDefault()?.TryGetLocalPath();
+            if (!string.IsNullOrEmpty(selectedFolder))
+                LibraryPath = selectedFolder;
+        }
+
+        private void ButtonLibraryExplorer_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(LibraryPath?.ToString()))
+                return;
+
+            Process.Start(
+                new ProcessStartInfo
+                {
+                    UseShellExecute = true,
+                    FileName = LibraryPath.ToString(SlashMode.Native)
+                }
+            );
+        }
+
         private async void ButtonInfo_Click(object sender, RoutedEventArgs e)
         {
             IsBusy = true;
@@ -500,12 +597,74 @@ namespace GDMENUOrganizer.AvaloniaUI
             }
         }
 
-        private void ButtonRefreshDrive_Click(object sender, RoutedEventArgs e)
+        private async Task UpdateVolumeLabelAsync(DriveInfo drive)
         {
-            FillDriveList(true);
+            try
+            {
+                var label = await Task.Run(() =>
+                {
+                    try
+                    {
+                        return drive.VolumeLabel;
+                    }
+                    catch
+                    {
+                        return string.Empty;
+                    }
+                });
+
+                if (ReferenceEquals(_driveInfo, drive))
+                {
+                    _selectedDriveVolumeLabel = label ?? string.Empty;
+                    RaisePropertyChanged(nameof(SelectedDriveVolumeLabel));
+                }
+            }
+            catch
+            {
+            }
         }
 
-        private void FillDriveList(bool isRefreshing = false)
+        private void ButtonRefreshDrive_Click(object sender, RoutedEventArgs e)
+        {
+            _ = FillDriveListAsync(true);
+        }
+
+        private async Task FillDriveListAsync(bool isRefreshing = false)
+        {
+            var showAllDrives = _showAllDrives;
+            var probe = await Task.Run(() => ProbeDrives(showAllDrives));
+
+            if (isRefreshing)
+            {
+                if (DriveList.Select(x => x.Name).SequenceEqual(probe.Drives.Select(x => x.Name)))
+                    return;
+
+                DriveList.Clear();
+            }
+
+            foreach (DriveInfo drive in probe.Drives)
+                DriveList.Add(drive);
+
+            if (!DriveList.Any())
+                return;
+
+            if (SelectedDrive != null)
+                return;
+
+            if (probe.SuggestedDriveName != null)
+            {
+                var suggested = DriveList.FirstOrDefault(d => d.Name == probe.SuggestedDriveName);
+                if (suggested != null)
+                {
+                    SelectedDrive = suggested;
+                    return;
+                }
+            }
+
+            SelectedDrive = DriveList.LastOrDefault();
+        }
+
+        private static DriveProbeResult ProbeDrives(bool showAllDrives)
         {
             DriveInfo[] list;
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -513,54 +672,52 @@ namespace GDMENUOrganizer.AvaloniaUI
                     .GetDrives()
                     .Where(
                         x =>
-                            x.IsReady
+                            SafeIsReady(x)
                             && (
-                                _showAllDrives
+                                showAllDrives
                                 || (
                                     x.DriveType == DriveType.Removable
-                                    && x.DriveFormat.StartsWith("FAT")
+                                    && SafeDriveFormat(x).StartsWith("FAT")
                                 )
                             )
                     )
                     .ToArray();
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-                //list = DriveInfo.GetDrives().Where(x => x.IsReady && (showAllDrives || x.DriveType == DriveType.Removable || x.DriveType == DriveType.Fixed)).ToArray();//todo need to test
                 list = DriveInfo
                     .GetDrives()
                     .Where(
                         x =>
-                            x.IsReady
+                            SafeIsReady(x)
                             && (
-                                _showAllDrives
+                                showAllDrives
                                 || x.DriveType == DriveType.Removable
                                 || x.DriveType == DriveType.Fixed
                                 || (
                                     x.DriveType == DriveType.Unknown
-                                    && x.DriveFormat.Equals(
-                                        "lifs",
-                                        StringComparison.InvariantCultureIgnoreCase
-                                    )
+                                    && SafeDriveFormat(x)
+                                        .Equals("lifs", StringComparison.InvariantCultureIgnoreCase)
                                 )
                             )
                     )
-                    .ToArray(); //todo need to test
+                    .ToArray();
             else //linux
                 list = DriveInfo
                     .GetDrives()
                     .Where(
                         x =>
-                            x.IsReady
+                            SafeIsReady(x)
                             && (
-                                _showAllDrives
+                                showAllDrives
                                 || (
                                     (
                                         x.DriveType == DriveType.Removable
                                         || x.DriveType == DriveType.Fixed
                                     )
-                                    && x.DriveFormat.Equals(
-                                        "msdos",
-                                        StringComparison.InvariantCultureIgnoreCase
-                                    )
+                                    && SafeDriveFormat(x)
+                                        .Equals(
+                                            "msdos",
+                                            StringComparison.InvariantCultureIgnoreCase
+                                        )
                                     && (
                                         x.Name.StartsWith(
                                             "/media/",
@@ -576,36 +733,31 @@ namespace GDMENUOrganizer.AvaloniaUI
                     )
                     .ToArray();
 
-            if (isRefreshing)
-            {
-                if (DriveList.Select(x => x.Name).SequenceEqual(list.Select(x => x.Name)))
-                    return;
+            var drives = new List<DriveInfo>();
+            string suggestedDriveName = null;
 
-                DriveList.Clear();
-            }
-
-            //fill drive list and try to find drive with gdemu contents
-            //look for GDEMU.ini file
             foreach (DriveInfo drive in list)
             {
                 try
                 {
-                    DriveList.Add(drive);
+                    drives.Add(drive);
                     if (
-                        SelectedDrive == null
+                        suggestedDriveName == null
                         && File.Exists(
-                            Path.Combine(drive.RootDirectory.FullName, Constants.MenuConfigTextFile)
+                            Path.Combine(
+                                drive.RootDirectory.FullName,
+                                Constants.MenuConfigTextFile
+                            )
                         )
                     )
-                        SelectedDrive = drive;
+                        suggestedDriveName = drive.Name;
                 }
                 catch
                 {
                 }
             }
 
-            //look for 01 folder
-            if (SelectedDrive == null)
+            if (suggestedDriveName == null)
             {
                 foreach (DriveInfo drive in list)
                 {
@@ -613,7 +765,7 @@ namespace GDMENUOrganizer.AvaloniaUI
                     {
                         if (Directory.Exists(Path.Combine(drive.RootDirectory.FullName, "01")))
                         {
-                            SelectedDrive = drive;
+                            suggestedDriveName = drive.Name;
                             break;
                         }
                     }
@@ -623,8 +775,7 @@ namespace GDMENUOrganizer.AvaloniaUI
                 }
             }
 
-            //look for /media mount
-            if (SelectedDrive == null)
+            if (suggestedDriveName == null)
             {
                 foreach (DriveInfo drive in list)
                 {
@@ -637,7 +788,7 @@ namespace GDMENUOrganizer.AvaloniaUI
                             )
                         )
                         {
-                            SelectedDrive = drive;
+                            suggestedDriveName = drive.Name;
                             break;
                         }
                     }
@@ -647,11 +798,46 @@ namespace GDMENUOrganizer.AvaloniaUI
                 }
             }
 
-            if (!DriveList.Any())
-                return;
+            if (suggestedDriveName == null && drives.Count > 0)
+                suggestedDriveName = drives[drives.Count - 1].Name;
 
-            if (SelectedDrive == null)
-                SelectedDrive = DriveList.LastOrDefault();
+            return new DriveProbeResult(drives, suggestedDriveName);
+        }
+
+        private static bool SafeIsReady(DriveInfo drive)
+        {
+            try
+            {
+                return drive.IsReady;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string SafeDriveFormat(DriveInfo drive)
+        {
+            try
+            {
+                return drive.DriveFormat ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private sealed class DriveProbeResult
+        {
+            public DriveProbeResult(List<DriveInfo> drives, string suggestedDriveName)
+            {
+                Drives = drives;
+                SuggestedDriveName = suggestedDriveName;
+            }
+
+            public List<DriveInfo> Drives { get; }
+            public string SuggestedDriveName { get; }
         }
 
         private async void MenuItemRename_Click(object sender, RoutedEventArgs e)

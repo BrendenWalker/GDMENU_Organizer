@@ -1,6 +1,6 @@
 # GDMENU Organizer
 
-Index your local Dreamcast GD ROM library, organize titles into **Cards**, and copy a Card to an SD card for use with GDEMU / GDmenu / openMenu.
+Index your local Dreamcast GD ROM library, organize titles into **Cards**, and write a Card to an SD card for use with GDEMU / GDmenu / openMenu.
 
 GDEMU expects a specific folder layout on the SD card. Getting that wrong slows boots or can prevent them entirely. GDMENU Organizer builds that layout correctly so your console boots quickly.
 
@@ -9,22 +9,29 @@ Forked from [GDMENU Card Manager](https://github.com/sonik-br/GDMENUCardManager)
 ![Main window](docs/capture1.png)
 ![Info window](docs/capture2.png)
 
-## Vision
+## How it works
 
-* **Local ROM index** — scan and catalog GD ROM files stored on your machine
-* **Cards** — user-defined subsets of that library (playlists / SD layouts)
-* **Load & write** — load a Card into the app and copy it to an SD card in GDEMU-friendly order
+The app is organized into three tabs:
 
-Current releases still include the original SD card manager workflow. The library index and multi-Card organization features are the roadmap for this fork.
+* **Library** — scan a folder of Dreamcast images into a local SQLite index. Search, view info/covers, rename titles, and export the list. Sync status shows which games are present, newly found, or missing from disk.
+* **Cards** — named playlists drawn from the library. Create / rename / delete cards, add or remove games, and reorder them. **Write SD Card** opens a drive picker and copies the selected card to the SD card in GDEMU-friendly order.
+* **Settings** — library folder, temporary folder, and menu kind (gdMenu or openMenu).
+
+App data lives under `%AppData%/GDMENUOrganizer` (or the equivalent Application Data folder on other platforms):
+
+* `app.db` — library games, cards, and cached PlayStation serial catalog
+* `settings.json` — library path, temp folder, and menu preference
+* `gamedb.yaml` — cached DuckStation game database used for PlayStation disc metadata
 
 ## Features
 
 * Multi platform: Windows / Linux / macOS
+* Local SQLite library index with present / new / missing sync status
+* Multiple named Cards with ordered game lists
+* Write a Card to an SD drive via a dedicated dialog
 * Supports both GDmenu and openMenu
 * Supports GDI, CDI, MDS and CCD files; also archives (zip / rar / 7z)
-* Add / delete / rename items
-* Sort alphabetically or manually (drag and drop)
-* Automatically rename from folder name, file name, or internal name (IP.BIN)
+* Rename from folder name, file name, or internal name (IP.BIN)
 * Show cover image (`0GDTEX.PVR`)
 * CodeBreaker image detection when applicable
 * Writes `name.txt` per folder for compatibility with other managers
@@ -50,8 +57,14 @@ Install the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotn
 
 ### Limitations
 
-* Linux: drag-and-drop is not available
 * macOS: if the app will not run, see upstream issue [#4](https://github.com/sonik-br/GDMENUCardManager/issues/4) for a workaround
+
+## Typical workflow
+
+1. Set **Library Path** and menu kind (gdMenu / openMenu) in Settings.
+2. On the Library tab, click **Refresh** to scan and index your ROMs.
+3. On the Cards tab, create a Card and add games from the library.
+4. Click **Write SD Card**, choose the SD drive, and confirm.
 
 ## Building
 
@@ -87,6 +100,13 @@ cd src/
 dotnet publish GDMENUOrganizer.AvaloniaUI/GDMENUOrganizer.AvaloniaUI.csproj -c Release
 cd GDMENUOrganizer.AvaloniaUI/bin/Release/net10.0/publish/
 ./GDMENUOrganizer
+```
+
+### Windows (SDK)
+
+```bash
+cd src/
+dotnet run --project GDMENUOrganizer.AvaloniaUI/GDMENUOrganizer.AvaloniaUI.csproj
 ```
 
 ## Credits

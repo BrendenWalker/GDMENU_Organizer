@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using ByteSizeLib;
+using GDMENUOrganizer.Core.Database;
 using NiceIO;
 
 namespace GDMENUOrganizer.Core
@@ -173,6 +174,12 @@ namespace GDMENUOrganizer.Core
         }
 
         /// <summary>
+        /// Database id from LibraryGames when this item was loaded from the library/card DB.
+        /// </summary>
+        [JsonIgnore]
+        public long? LibraryGameId { get; set; }
+
+        /// <summary>
         /// @todo: fill this out
         /// </summary>
         private IpBin? _ip;
@@ -263,6 +270,27 @@ namespace GDMENUOrganizer.Core
         [JsonIgnore] public bool HasError => !string.IsNullOrEmpty(ErrorState);
 
         [JsonIgnore] public bool IsMenuItem => EnumHelpers.GetMenuKindFromName(Name) != MenuKind.None;
+
+        /// <summary>
+        /// Library sync status relative to the configured library folder (present / new / missing).
+        /// </summary>
+        private string _syncStatus = LibrarySyncStatuses.Present;
+
+        [JsonIgnore]
+        public string SyncStatus
+        {
+            get => _syncStatus;
+            set
+            {
+                _syncStatus = LibrarySyncStatuses.Normalize(value);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SyncStatusDisplay));
+            }
+        }
+
+        [JsonIgnore]
+        public string SyncStatusDisplay =>
+            _syncStatus == LibrarySyncStatuses.Present ? string.Empty : _syncStatus;
 
         public bool ImportComparator(GdItem other)
         {

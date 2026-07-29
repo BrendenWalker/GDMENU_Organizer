@@ -1,0 +1,51 @@
+CREATE TABLE IF NOT EXISTS Meta (
+    Key TEXT NOT NULL PRIMARY KEY,
+    Value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS PsGames (
+    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    Serial TEXT NOT NULL COLLATE NOCASE,
+    Name TEXT,
+    ReleaseDate TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS IX_PsGames_Serial ON PsGames (Serial COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS IX_PsGames_Name ON PsGames (Name);
+
+CREATE TABLE IF NOT EXISTS LibraryGames (
+    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    SourcePath TEXT NOT NULL,
+    Name TEXT,
+    ProductNumber TEXT,
+    Disc TEXT,
+    LengthBytes INTEGER NOT NULL DEFAULT 0,
+    FileFormat TEXT,
+    SpecialDisc INTEGER NOT NULL DEFAULT 0,
+    ReleaseDate TEXT,
+    Region TEXT,
+    SyncStatus TEXT NOT NULL DEFAULT 'present'
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS IX_LibraryGames_SourcePath ON LibraryGames (SourcePath);
+CREATE INDEX IF NOT EXISTS IX_LibraryGames_ProductNumber ON LibraryGames (ProductNumber);
+CREATE INDEX IF NOT EXISTS IX_LibraryGames_Name ON LibraryGames (Name);
+
+CREATE TABLE IF NOT EXISTS Cards (
+    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    Name TEXT NOT NULL,
+    Description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS CardGames (
+    CardId INTEGER NOT NULL,
+    LibraryGameId INTEGER NOT NULL,
+    SortOrder INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (CardId, LibraryGameId),
+    FOREIGN KEY (CardId) REFERENCES Cards (Id) ON DELETE CASCADE,
+    FOREIGN KEY (LibraryGameId) REFERENCES LibraryGames (Id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS IX_CardGames_LibraryGameId ON CardGames (LibraryGameId);
+
+INSERT OR IGNORE INTO Meta (Key, Value) VALUES ('SchemaVersion', '2');

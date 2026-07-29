@@ -78,7 +78,7 @@ namespace GDMENUOrganizer.Core
                     break;
                 }
 
-                if (!await itemImageFile.FileExistsAsync())
+                if (itemImageFile != null && !await itemImageFile.FileExistsAsync())
                 {
                     item.ImageFiles.Add(compressedFile.FileName);
 
@@ -213,7 +213,9 @@ namespace GDMENUOrganizer.Core
                                                 SpecialDisc = SpecialDisc.BleemGame
                                             };
 
-                                            var psEntry = PlayStationDB.FindBySerial(serial);
+                                            var psEntry = await PlayStationDB.FindBySerialAsync(
+                                                serial
+                                            );
                                             if (psEntry == null)
                                             {
                                                 ip.Name = serial;
@@ -345,7 +347,8 @@ namespace GDMENUOrganizer.Core
             item.ProductNumber = item.ProductNumber?.Trim();
 
             if (
-                item.FullFolderPath.IsChildOf(Manager.SdPath)
+                !string.IsNullOrEmpty(Manager.SdPath)
+                && item.FullFolderPath.IsChildOf(Manager.SdPath)
                 && int.TryParse(Path.GetFileName(itemImageFile.Parent.ToString()), out var number)
             )
                 item.SdNumber = number;
@@ -622,7 +625,8 @@ namespace GDMENUOrganizer.Core
             item.ProductNumber = item.ProductNumber?.Trim();
 
             if (
-                item.FullFolderPath.IsChildOf(Manager.SdPath)
+                !string.IsNullOrEmpty(Manager.SdPath)
+                && item.FullFolderPath.IsChildOf(Manager.SdPath)
                 && int.TryParse(
                     new DirectoryInfo(item.FullFolderPath.ToString()).Name,
                     out var number

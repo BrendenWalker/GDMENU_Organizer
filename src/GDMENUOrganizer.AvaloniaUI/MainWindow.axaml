@@ -8,13 +8,13 @@
         x:Class="GDMENUOrganizer.AvaloniaUI.MainWindow"
         Title="GDMENU Organizer" Height="700" Width="800" MinHeight="400" MinWidth="800"
         WindowStartupLocation="CenterScreen"
-        Icon="/Assets/GDMENUOrganizer.ico"
-        DragDrop.AllowDrop="{Binding Path=!IsBusy, Mode=OneWay}">
+        Icon="/Assets/GDMENUOrganizer.ico">
     <Window.Resources>
         <ResourceDictionary>
             <conv:ByteSizeToStringConverter x:Key="ByteSizeToString" />
             <conv:EnumToBoolConverter x:Key="EnumToBool" />
             <conv:LocationEnumConverter x:Key="LocationEnumConverter" />
+            <conv:SyncStatusToBrushConverter x:Key="SyncStatusToBrush" />
 
             <!--icons from materialdesignicons.com; x:Shared=False so each use gets its own instance-->
             <Viewbox x:Key="ViewOpenFolder" x:Shared="False" Width="18" Height="18">
@@ -72,43 +72,125 @@
 
         <ProgressBar Grid.Row="0" Height="5" IsIndeterminate="{Binding IsBusy, Mode=OneWay}" />
 
-        <TabControl Grid.Row="1" Margin="5" IsEnabled="{Binding !IsBusy, Mode=OneWay}">
+        <TabControl Name="mainTabs" Grid.Row="1" Margin="5" IsEnabled="{Binding !IsBusy, Mode=OneWay}"
+                    SelectionChanged="MainTabs_SelectionChanged">
 
             <!-- Cards -->
-            <TabItem Header="Cards">
-                <Grid Margin="10" VerticalAlignment="Top">
+            <TabItem Name="cardsTab" Header="Cards">
+                <Grid Margin="10" IsEnabled="{Binding !IsBusy, Mode=OneWay}">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="300" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="220" MinWidth="160" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="1*" />
                     </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="1*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0 0 10 0">SD Drive</TextBlock>
-                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center"
-                              ItemsSource="{Binding DriveList, Mode=OneWay}"
-                              SelectedItem="{Binding SelectedDrive}"
-                              ToolTip.Tip="{Binding SelectedDriveVolumeLabel, Mode=OneWay}" />
-                    <Button Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Center"
-                            ToolTip.Tip="Refresh Drive List" Click="ButtonRefreshDrive_Click">
-                        <ContentControl Content="{StaticResource ViewRefresh}" />
-                    </Button>
+                    <HeaderedContentControl Grid.Row="0" Grid.Column="0" Header="Cards">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0 8 0 0">
+                                <Button Width="40" ToolTip.Tip="Create card" Click="ButtonCardAdd_Click"
+                                        Content="{StaticResource ViewAdd}" />
+                                <Button Width="40" ToolTip.Tip="Delete selected card" Click="ButtonCardDelete_Click"
+                                        Content="{StaticResource ViewRemove}"
+                                        IsEnabled="{Binding SelectedCard, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <Button Padding="10 0" ToolTip.Tip="Rename selected card" Click="ButtonCardRename_Click"
+                                        IsEnabled="{Binding SelectedCard, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    Rename
+                                </Button>
+                            </StackPanel>
+                            <ListBox Name="lbCards"
+                                     ItemsSource="{Binding CardList, Mode=OneWay}"
+                                     SelectedItem="{Binding SelectedCard}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </HeaderedContentControl>
+
+                    <HeaderedContentControl Grid.Row="0" Grid.Column="2"
+                                            Header="{Binding Path=CardGamesTotalLength, Mode=OneWay, StringFormat='Card Games [{0}]'}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0 8 0 0"
+                                        IsEnabled="{Binding SelectedCard, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <Button Width="50" ToolTip.Tip="Add games from library" Click="ButtonCardGameAdd_Click"
+                                        Content="{StaticResource ViewAdd}" />
+                                <Button Width="50" ToolTip.Tip="Remove selected game(s)" Click="ButtonCardGameRemove_Click"
+                                        Content="{StaticResource ViewRemove}" />
+                                <Button Width="50" ToolTip.Tip="Move selected game(s) up" Click="ButtonCardGameMoveUp_Click">
+                                    <Viewbox Width="24" Height="24">
+                                        <Canvas Width="24" Height="24">
+                                            <Path Fill="{DynamicResource ButtonForeground}"
+                                                  Data="M12,7L17,12H14V16H10V12H7L12,7M12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20Z" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </Button>
+                                <Button Width="50" ToolTip.Tip="Move selected game(s) down" Click="ButtonCardGameMoveDown_Click">
+                                    <Viewbox Width="24" Height="24">
+                                        <Canvas Width="24" Height="24">
+                                            <Path Fill="{DynamicResource ButtonForeground}"
+                                                  Data="M12,17L7,12H10V8H14V12H17L12,17M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z" />
+                                        </Canvas>
+                                    </Viewbox>
+                                </Button>
+                            </StackPanel>
+
+                            <DataGrid Name="dgCardGames"
+                                      ItemsSource="{Binding CardGames, Mode=OneWay}"
+                                      AutoGenerateColumns="False"
+                                      CanUserResizeColumns="False" CanUserSortColumns="False" CanUserReorderColumns="False"
+                                      IsEnabled="{Binding SelectedCard, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                      RowBackground="{DynamicResource ThemeBackgroundBrush}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Title" Width="1*" IsReadOnly="True"
+                                                        Binding="{Binding Name, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Serial" Width="Auto" IsReadOnly="True"
+                                                        Binding="{Binding ProductNumber, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Disc" Width="Auto" IsReadOnly="True"
+                                                        Binding="{Binding Ip.Disc, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Length" Width="Auto" IsReadOnly="True"
+                                                        Binding="{Binding Length, Mode=OneWay, Converter={StaticResource ByteSizeToString}}" />
+                                    <DataGridTemplateColumn Header="Status" Width="Auto">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding SyncStatusDisplay}"
+                                                           Foreground="{Binding SyncStatus, Converter={StaticResource SyncStatusToBrush}}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </HeaderedContentControl>
+
+                    <Button Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                            Margin="0 12 0 0" Padding="0 12" FontWeight="Bold"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            Content="Write SD Card"
+                            Click="ButtonWriteSdCard_Click"
+                            IsEnabled="{Binding SelectedCard, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 </Grid>
             </TabItem>
 
             <!-- Library -->
-            <TabItem Header="Library">
+            <TabItem Name="libraryTab" Header="Library">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="1*" />
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <HeaderedContentControl Grid.Row="0" Margin="10 0 10 10"
                                             Header="{Binding Path=TotalFilesLength, Mode=OneWay, StringFormat='Games List [{0}]'}">
                         <DockPanel>
-                            <Grid DockPanel.Dock="Top" Width="500" HorizontalAlignment="Left" Margin="0 5">
+                            <Grid DockPanel.Dock="Top" Width="580" HorizontalAlignment="Left" Margin="0 5">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
@@ -121,13 +203,21 @@
                                         Click="ButtonSearch_Click">
                                     <ContentControl Content="{StaticResource ViewMagnify}" />
                                 </Button>
+                                <Button Grid.Column="3" Margin="8 0 0 0" Padding="10 0"
+                                        ToolTip.Tip="Refresh library from folder"
+                                        Click="ButtonLibraryRefresh_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <ContentControl Content="{StaticResource ViewRefresh}" />
+                                        <TextBlock VerticalAlignment="Center" Text="Refresh" />
+                                    </StackPanel>
+                                </Button>
                             </Grid>
 
                             <DataGrid Name="dg1"
                                       ItemsSource="{Binding Manager.ItemList, Mode=OneWay, UpdateSourceTrigger=PropertyChanged}"
                                       IsEnabled="{Binding Path=!IsBusy, Mode=OneWay}" AutoGenerateColumns="False"
                                       CanUserResizeColumns="False" CanUserSortColumns="False" CanUserReorderColumns="False"
-                                      KeyDown="GridOnKeyDown" RowBackground="{DynamicResource ThemeBackgroundBrush}">
+                                      RowBackground="{DynamicResource ThemeBackgroundBrush}">
                                 <DataGrid.Styles>
                                     <Style Selector="DataGridRow">
                                         <Setter Property="ContextMenu" Value="{DynamicResource rowmenu}" />
@@ -191,8 +281,30 @@
                                     </DataGridTextColumn>
                                     <DataGridTextColumn Header="Length" Width="Auto" IsReadOnly="True"
                                                         Binding="{Binding Length, Mode=OneWay, Converter={StaticResource ByteSizeToString}}" />
-                                    <DataGridTextColumn Header="Title" Width="1*" Binding="{Binding Name}" />
-                                    <DataGridTextColumn Header="Serial" Width="Auto" Binding="{Binding ProductNumber}" />
+                                    <DataGridTemplateColumn Header="Status" Width="Auto">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding SyncStatusDisplay}"
+                                                           Foreground="{Binding SyncStatus, Converter={StaticResource SyncStatusToBrush}}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="Title" Width="1*">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Name}"
+                                                           Foreground="{Binding SyncStatus, Converter={StaticResource SyncStatusToBrush}}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="Serial" Width="Auto">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding ProductNumber}"
+                                                           Foreground="{Binding SyncStatus, Converter={StaticResource SyncStatusToBrush}}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
                                     <DataGridTextColumn Header="Disc" Width="Auto" IsReadOnly="True"
                                                         Binding="{Binding Ip.Disc, Mode=OneWay}" />
                                 </DataGrid.Columns>
@@ -200,100 +312,15 @@
                         </DockPanel>
                     </HeaderedContentControl>
 
-                    <!--<StackPanel Grid.Row="1" Margin="5 0 5 10" IsEnabled="{Binding IsBusy, Mode=OneWay}">
-                      <StackPanel Orientation="Horizontal">
-                        <CheckBox IsChecked="{Binding EnableGDIShrink}">
-                          <TextBlock>
-                            Enable GDI Shrink for new games&#x0a;Games can use less space on SD Card
-                          </TextBlock>
-                        </CheckBox>
-                        <StackPanel Orientation="Horizontal">
-                          <CheckBox IsChecked="{Binding EnableGDIShrinkCompressed}" Margin="25 0 0 0">
-                            <TextBlock>
-                              Also shrink compressed games&#x0a;Games will be extracted to temp folder prior to shrinking
-                            </TextBlock>
-                          </CheckBox>
-                          <CheckBox IsChecked="{Binding EnableGDIShrinkBlackList}" Margin="25 0 0 0">
-                            <TextBlock>
-                              Use Blacklist&#x0a;Skips incompatible games
-                            </TextBlock>
-                          </CheckBox>
-                        </StackPanel>
-                      </StackPanel>
-                    </StackPanel>-->
-
                     <Grid Grid.Row="1" Margin="5 0 5 10" IsEnabled="{Binding !IsBusy, Mode=OneWay}">
-
-                        <Grid IsEnabled="{Binding SelectedDrive, Mode=OneWay, Converter={x:Static ObjectConverters.IsNotNull}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="auto" />
-                                <ColumnDefinition Width="auto" />
-                                <ColumnDefinition Width="auto" />
-                                <ColumnDefinition Width="auto" />
-                                <ColumnDefinition Width="1*" />
-                                <ColumnDefinition Width="auto" />
-                                <ColumnDefinition Width="auto" />
-                                <ColumnDefinition Width="auto" />
-                            </Grid.ColumnDefinitions>
-
-                            <Button Grid.Column="0" Width="50" Margin="10 0" ToolTip.Tip="Add game(s)" Click="ButtonAddGames_Click"
-                                    Content="{StaticResource ViewAdd}" />
-                            <Button Grid.Column="1" Width="50" Margin="0 0 10 0" ToolTip.Tip="Remove selected game(s)"
-                                    Click="ButtonRemoveGame_Click" Content="{StaticResource ViewRemove}" />
-
-
-                            <Button Grid.Column="2" Width="50" Margin="10 0" ToolTip.Tip="Move selected game(s) up"
-                                    Click="ButtonMoveUp_Click">
-                                <Button.Content>
-                                    <Viewbox Width="24" Height="24">
-                                        <Canvas Width="24" Height="24">
-                                            <Path Fill="{DynamicResource ButtonForeground}"
-                                                  Data="M12,7L17,12H14V16H10V12H7L12,7M12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20Z" />
-                                        </Canvas>
-                                    </Viewbox>
-                                </Button.Content>
-                            </Button>
-                            <Button Grid.Column="3" Width="50" Margin="0 0 10 0" ToolTip.Tip="Move selected game(s) down"
-                                    Click="ButtonMoveDown_Click">
-                                <Button.Content>
-                                    <Viewbox Width="24" Height="24">
-                                        <Canvas Width="24" Height="24">
-                                            <Path Fill="{DynamicResource ButtonForeground}"
-                                                  Data="M12,17L7,12H10V8H14V12H17L12,17M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z" />
-                                        </Canvas>
-                                    </Viewbox>
-                                </Button.Content>
-                            </Button>
-
-                            <Button Grid.Column="4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="10 0"
-                                    Padding="0 10" FontWeight="Bold"
-                                    Click="ButtonSaveChanges_Click">
-                                Save Changes
-                            </Button>
-                            <Button Grid.Column="5" Margin="10 0" Padding="10 10"
-                                    ToolTip.Tip="Load info from files that are already on sd card" Click="ButtonPreload_Click">
-                                Preload
-                            </Button>
-                            <Button Grid.Column="6" Margin="10 0" Padding="10 10" Click="ButtonSort_Click">Sort List</Button>
-                            <Button Grid.Column="7" Margin="10 0" Padding="10 10" Click="ButtonBatchRename_Click">Batch Rename</Button>
-                        </Grid>
-                    </Grid>
-
-                    <Grid Grid.Row="2" Margin="5 0 5 10" IsEnabled="{Binding !IsBusy, Mode=OneWay}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="auto" />
-                            <ColumnDefinition Width="auto" />
-                            <ColumnDefinition Width="auto" />
-                        </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Margin="10 0 0 0" Padding="10 10" Click="ButtonExportList_Click">Export Game List</Button>
-                        <Button Grid.Column="1" Margin="10 0" Padding="10 10" Click="ButtonImportList_Click">Import Game List</Button>
-                        <Button Grid.Column="2" Margin="10 0 0 0" Padding="10 10" Click="ButtonErrorReport_Click">Save Error Report</Button>
+                        <Button HorizontalAlignment="Left" Margin="10 0 0 0" Padding="10 10"
+                                Click="ButtonExportList_Click">Export Game List</Button>
                     </Grid>
                 </Grid>
             </TabItem>
 
             <!-- Settings -->
-            <TabItem Header="Settings">
+            <TabItem Name="settingsTab" Header="Settings">
                 <Grid Margin="10" VerticalAlignment="Top">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />

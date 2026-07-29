@@ -16,7 +16,10 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="ByteSize" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
   <ItemGroup>
     <None Update="gamedb.json">
@@ -25,6 +28,7 @@
     <None Update="gdishrink_blacklist.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <EmbeddedResource Include="Database\Schema.sql" />
   </ItemGroup>
   <ItemGroup>
     <None Update="tools\**\*.*">

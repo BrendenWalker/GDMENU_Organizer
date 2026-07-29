@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 
 namespace GDMENUOrganizer.Core
@@ -12,6 +13,9 @@ namespace GDMENUOrganizer.Core
         public const string MenuConfigTextFile = "GDEMU.ini";
         public const string GdiShrinkBlacklistFile = "gdishrink_blacklist.txt";
         public const string PS1GameDBFile = "gamedb.json";
+        public const string DuckStationGameDbYamlUrl =
+            "https://raw.githubusercontent.com/stenzek/duckstation/master/data/resources/gamedb.yaml";
+        public static readonly TimeSpan PsGameDbRefreshInterval = TimeSpan.FromDays(7);
         public const string DefaultImageFileName = "disc";
         /// <summary>App version from MSBuild AppVersion / InformationalVersion (set from git tag in CI).</summary>
         public static string Version { get; } =

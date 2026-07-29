@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -24,14 +23,7 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         public MenuKind MenuKind { get; set; } = MenuKind.None;
 
-        public static string GetSettingsPath()
-        {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "GDMENUOrganizer"
-            );
-            return Path.Combine(dir, "settings.json");
-        }
+        public static string GetSettingsPath() => AppStorage.SettingsPath;
 
         public static UserSettings Load()
         {

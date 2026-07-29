@@ -9,7 +9,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -17,6 +16,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using GDMENUOrganizer.Core;
+using GDMENUOrganizer.Core.Database;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Models;
 using NiceIO;
@@ -33,6 +33,10 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private ObservableCollection<DriveInfo> DriveList { get; } = new();
 
+        private ObservableCollection<CardRecord> CardList { get; } = new();
+
+        private ObservableCollection<GdItem> CardGames { get; } = new();
+
         private bool _isBusy;
 
         private bool IsBusy
@@ -47,6 +51,9 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private DriveInfo _driveInfo;
         private string _selectedDriveVolumeLabel = string.Empty;
+        private CardRecord _selectedCard;
+        private string _cardGamesTotalLength = string.Empty;
+        private bool _suppressCardSelectionLoad;
 
         public DriveInfo SelectedDrive
         {
@@ -54,9 +61,7 @@ namespace GDMENUOrganizer.AvaloniaUI
             set
             {
                 _driveInfo = value;
-                Manager.ItemList.Clear();
                 Manager.SdPath = value?.RootDirectory.ToString();
-                Filter = null;
                 _selectedDriveVolumeLabel = string.Empty;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(SelectedDriveVolumeLabel));
@@ -66,6 +71,37 @@ namespace GDMENUOrganizer.AvaloniaUI
         }
 
         public string SelectedDriveVolumeLabel => _selectedDriveVolumeLabel;
+
+        public CardRecord SelectedCard
+        {
+            get => _selectedCard;
+            set
+            {
+                if (ReferenceEquals(_selectedCard, value))
+                    return;
+                if (_selectedCard != null && value != null && _selectedCard.Id == value.Id)
+                {
+                    _selectedCard = value;
+                    RaisePropertyChanged();
+                    return;
+                }
+
+                _selectedCard = value;
+                RaisePropertyChanged();
+                if (!_suppressCardSelectionLoad)
+                    _ = LoadSelectedCardGamesAsync();
+            }
+        }
+
+        public string CardGamesTotalLength
+        {
+            get => _cardGamesTotalLength;
+            private set
+            {
+                _cardGamesTotalLength = value;
+                RaisePropertyChanged();
+            }
+        }
 
         private NPath _tempFolder;
 
@@ -80,17 +116,24 @@ namespace GDMENUOrganizer.AvaloniaUI
             }
         }
 
-        private NPath _libraryPath;
+        private string _libraryPath = string.Empty;
 
-        private NPath LibraryPath
+        private string LibraryPath
         {
             get => _libraryPath;
             set
             {
-                _libraryPath = value;
+                _libraryPath = NormalizeLibraryPath(value);
                 RaisePropertyChanged();
                 PersistUserSettings();
             }
+        }
+
+        private static string NormalizeLibraryPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || path.Trim() == ".")
+                return string.Empty;
+            return path.Trim();
         }
 
         private string _totalFilesLength;
@@ -128,7 +171,6 @@ namespace GDMENUOrganizer.AvaloniaUI
             }
         }
 
-        private readonly FilePickerFileType _dreamcastFileType;
         private bool _loadingUserSettings;
 
         public MainWindow()
@@ -144,23 +186,18 @@ namespace GDMENUOrganizer.AvaloniaUI
                 new DependencyManager(),
                 compressedFileFormats
             );
-            var fullList = Manager.SupportedImageFormats.Concat(compressedFileFormats).ToArray();
-            _dreamcastFileType = new FilePickerFileType(
-                $"Dreamcast Game ({string.Join("; ", fullList.Select(x => $"*{x}"))})"
-            )
-            {
-                Patterns = fullList.Select(x => $"*{x}").ToArray()
-            };
 
             this.Opened += async (ss, ee) =>
             {
-                // Warm PS1 DB off the UI thread; only needed for Bleem/PS1 discs.
-                _ = Task.Run(PlayStationDB.EnsureLoaded);
+                await AppDatabase.EnsureCreatedAsync();
                 await FillDriveListAsync();
+                await ReloadCardsAsync();
+                await LoadLibraryFromDbAsync();
             };
 
+            CardGames.CollectionChanged += (_, _) => UpdateCardGamesTotalSize();
+
             this.Closing += MainWindow_Closing;
-            this.PropertyChanged += MainWindow_PropertyChanged;
             Manager.ItemList.CollectionChanged += ItemList_CollectionChanged;
 
             //config parsing. all settings are optional and must reverse to default values if missing
@@ -184,6 +221,11 @@ namespace GDMENUOrganizer.AvaloniaUI
                 Manager.TruncateMenuGdi = truncateMenuGDI;
 
             ApplyUserSettings(UserSettings.Load());
+            if (string.IsNullOrWhiteSpace(LibraryPath))
+            {
+                ShowSettingsTab();
+                PersistUserSettings(); // clear NiceIO "." leftovers from settings.json
+            }
             Title = "GDMENU Organizer " + Constants.Version;
 
             //showAllDrives = true;
@@ -209,6 +251,43 @@ namespace GDMENUOrganizer.AvaloniaUI
             }
         }
 
+        private void ShowSettingsTab()
+        {
+            var tabs = this.FindControl<TabControl>("mainTabs");
+            var settingsTab = this.FindControl<TabItem>("settingsTab");
+            if (tabs != null && settingsTab != null)
+                tabs.SelectedItem = settingsTab;
+        }
+
+        private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // SelectionChanged bubbles from child ListBox/DataGrid selections. Ignore those or
+            // ReloadCardsAsync ↔ SelectedCard ↔ ListBox will recurse until StackOverflow.
+            if (sender is not TabControl tabs)
+                return;
+            if (e.Source != null && !ReferenceEquals(e.Source, tabs))
+                return;
+            if (tabs.SelectedItem is not TabItem selected)
+                return;
+
+            if (selected.Name == "libraryTab")
+            {
+                _ = LoadLibraryFromDbAsync();
+                if (dg1 != null)
+                {
+                    // Focus after the tab content is shown so keyboard nav works immediately.
+                    Avalonia.Threading.Dispatcher.UIThread.Post(
+                        () => dg1.Focus(),
+                        Avalonia.Threading.DispatcherPriority.Background
+                    );
+                }
+            }
+            else if (selected.Name == "cardsTab")
+            {
+                _ = ReloadCardsAsync();
+            }
+        }
+
         private void PersistUserSettings()
         {
             if (_loadingUserSettings)
@@ -216,7 +295,7 @@ namespace GDMENUOrganizer.AvaloniaUI
 
             new UserSettings
             {
-                LibraryPath = LibraryPath?.ToString() ?? string.Empty,
+                LibraryPath = LibraryPath ?? string.Empty,
                 TempFolder = TempFolder?.ToString() ?? string.Empty,
                 MenuKind = MenuKindSelected
             }.Save();
@@ -225,14 +304,7 @@ namespace GDMENUOrganizer.AvaloniaUI
         private void InitializeComponent()
         {
             AvaloniaXamlLoader.Load(this);
-            this.AddHandler(DragDrop.DropEvent, WindowDrop);
             dg1 = this.FindControl<DataGrid>("dg1");
-        }
-
-        private async void MainWindow_PropertyChanged(object sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(SelectedDrive) && SelectedDrive != null)
-                await LoadItemsFromCard();
         }
 
         private void ItemList_CollectionChanged(
@@ -265,6 +337,370 @@ namespace GDMENUOrganizer.AvaloniaUI
             TotalFilesLength = Converter.ByteSizeToStringConverter.UseBinaryString
                 ? bsize.ToBinaryString()
                 : bsize.ToString();
+        }
+
+        private void UpdateCardGamesTotalSize()
+        {
+            var bsize = ByteSizeLib.ByteSize.FromBytes(CardGames.Sum(x => x.Length.Bytes));
+            CardGamesTotalLength = Converter.ByteSizeToStringConverter.UseBinaryString
+                ? bsize.ToBinaryString()
+                : bsize.ToString();
+        }
+
+        private async Task LoadLibraryFromDbAsync()
+        {
+            await AppDatabase.EnsureCreatedAsync();
+            var games = await AppDatabase.Instance.Library.ListAsync();
+
+            Manager.ItemList.Clear();
+            foreach (var record in games)
+                Manager.ItemList.Add(LibraryScanner.ToGdItem(record));
+        }
+
+        private async Task ReloadCardsAsync(long? selectCardId = null)
+        {
+            await AppDatabase.EnsureCreatedAsync();
+            var cards = await AppDatabase.Instance.Cards.ListAsync();
+            var preferredId = selectCardId ?? SelectedCard?.Id;
+
+            _suppressCardSelectionLoad = true;
+            try
+            {
+                CardList.Clear();
+                foreach (var card in cards)
+                    CardList.Add(card);
+
+                var next =
+                    preferredId != null
+                        ? CardList.FirstOrDefault(c => c.Id == preferredId)
+                        : CardList.FirstOrDefault();
+
+                // Assign field directly while suppressed so ListBox two-way binding cannot
+                // re-enter this method through a bubbled TabControl.SelectionChanged.
+                if (!ReferenceEquals(_selectedCard, next))
+                {
+                    _selectedCard = next;
+                    RaisePropertyChanged(nameof(SelectedCard));
+                }
+            }
+            finally
+            {
+                _suppressCardSelectionLoad = false;
+            }
+
+            await LoadSelectedCardGamesAsync();
+        }
+
+        private async Task LoadSelectedCardGamesAsync()
+        {
+            CardGames.Clear();
+            if (SelectedCard == null)
+            {
+                UpdateCardGamesTotalSize();
+                return;
+            }
+
+            await AppDatabase.EnsureCreatedAsync();
+            var games = await AppDatabase.Instance.Cards.GetGamesForCardAsync(SelectedCard.Id);
+            foreach (var record in games)
+                CardGames.Add(LibraryScanner.ToGdItem(record));
+            UpdateCardGamesTotalSize();
+        }
+
+        private async Task PersistSelectedCardGamesAsync()
+        {
+            if (SelectedCard == null)
+                return;
+
+            var links = CardGames
+                .Where(g => g.LibraryGameId.HasValue)
+                .Select(
+                    (g, index) =>
+                        new CardGameLink
+                        {
+                            LibraryGameId = g.LibraryGameId!.Value,
+                            SortOrder = index
+                        }
+                )
+                .ToList();
+
+            await AppDatabase.Instance.Cards.SetGamesAsync(SelectedCard.Id, links);
+        }
+
+        private async Task<string> PromptForTextAsync(
+            string title,
+            string header,
+            string defaultValue = ""
+        )
+        {
+            var dialog = new TextInputWindow(title, header, defaultValue);
+            if (!await dialog.ShowDialog<bool>(this))
+                return null;
+            return string.IsNullOrWhiteSpace(dialog.InputValue) ? null : dialog.InputValue;
+        }
+
+        private async void ButtonCardAdd_Click(object sender, RoutedEventArgs e)
+        {
+            var name = await PromptForTextAsync("New Card", "Enter a name for the card");
+            if (name == null)
+                return;
+
+            try
+            {
+                await AppDatabase.EnsureCreatedAsync();
+                var id = await AppDatabase.Instance.Cards.CreateAsync(name);
+                await ReloadCardsAsync(id);
+            }
+            catch (Exception ex)
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Create Card",
+                        ex.Message,
+                        icon: MsBox.Avalonia.Enums.Icon.Error
+                    )
+                    .ShowWindowDialogAsync(this);
+            }
+        }
+
+        private async void ButtonCardDelete_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedCard == null)
+                return;
+
+            var confirm = await MessageBoxManager
+                .GetMessageBoxStandard(
+                    "Delete Card",
+                    $"Delete card \"{SelectedCard.Name}\"?\nGames stay in the library.",
+                    MsBox.Avalonia.Enums.ButtonEnum.YesNo,
+                    MsBox.Avalonia.Enums.Icon.Warning
+                )
+                .ShowWindowDialogAsync(this);
+
+            if (confirm != MsBox.Avalonia.Enums.ButtonResult.Yes)
+                return;
+
+            try
+            {
+                await AppDatabase.Instance.Cards.DeleteAsync(SelectedCard.Id);
+                await ReloadCardsAsync();
+            }
+            catch (Exception ex)
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Delete Card",
+                        ex.Message,
+                        icon: MsBox.Avalonia.Enums.Icon.Error
+                    )
+                    .ShowWindowDialogAsync(this);
+            }
+        }
+
+        private async void ButtonCardRename_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedCard == null)
+                return;
+
+            var name = await PromptForTextAsync(
+                "Rename Card",
+                "Enter a new name for the card",
+                SelectedCard.Name
+            );
+            if (name == null || name == SelectedCard.Name)
+                return;
+
+            try
+            {
+                SelectedCard.Name = name;
+                await AppDatabase.Instance.Cards.UpdateAsync(SelectedCard);
+                await ReloadCardsAsync(SelectedCard.Id);
+            }
+            catch (Exception ex)
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Rename Card",
+                        ex.Message,
+                        icon: MsBox.Avalonia.Enums.Icon.Error
+                    )
+                    .ShowWindowDialogAsync(this);
+            }
+        }
+
+        private async void ButtonCardGameAdd_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedCard == null)
+                return;
+
+            try
+            {
+                await AppDatabase.EnsureCreatedAsync();
+                var libraryGames = await AppDatabase.Instance.Library.ListAsync();
+                var onCard = CardGames
+                    .Where(g => g.LibraryGameId.HasValue)
+                    .Select(g => g.LibraryGameId!.Value)
+                    .ToHashSet();
+
+                var available = libraryGames
+                    .Where(g => !onCard.Contains(g.Id))
+                    .Select(LibraryScanner.ToGdItem)
+                    .OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (available.Count == 0)
+                {
+                    await MessageBoxManager
+                        .GetMessageBoxStandard(
+                            "Add Games",
+                            libraryGames.Count == 0
+                                ? "The library is empty. Refresh the Library tab first."
+                                : "All library games are already on this card.",
+                            icon: MsBox.Avalonia.Enums.Icon.Info
+                        )
+                        .ShowWindowDialogAsync(this);
+                    return;
+                }
+
+                var dialog = new AddGamesToCardWindow(available);
+                var selected = await dialog.ShowDialog<List<GdItem>>(this);
+                if (selected == null || selected.Count == 0)
+                    return;
+
+                foreach (var item in selected)
+                    CardGames.Add(item);
+
+                await PersistSelectedCardGamesAsync();
+            }
+            catch (Exception ex)
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Add Games",
+                        ex.Message,
+                        icon: MsBox.Avalonia.Enums.Icon.Error
+                    )
+                    .ShowWindowDialogAsync(this);
+            }
+        }
+
+        private async void ButtonCardGameRemove_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedCard == null || dgCardGames == null)
+                return;
+
+            var selected = dgCardGames.SelectedItems.Cast<GdItem>().ToArray();
+            if (selected.Length == 0)
+                return;
+
+            foreach (var item in selected)
+                CardGames.Remove(item);
+
+            await PersistSelectedCardGamesAsync();
+        }
+
+        private async void ButtonCardGameMoveUp_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedCard == null || dgCardGames == null)
+                return;
+
+            var selectedItems = dgCardGames.SelectedItems.Cast<GdItem>().ToArray();
+            if (selectedItems.Length == 0)
+                return;
+
+            int moveTo = CardGames.IndexOf(selectedItems.First()) - 1;
+            if (moveTo < 0)
+                return;
+
+            foreach (var item in selectedItems)
+                CardGames.Remove(item);
+
+            foreach (var item in selectedItems)
+                CardGames.Insert(moveTo++, item);
+
+            dgCardGames.SelectedItems.Clear();
+            foreach (var item in selectedItems)
+                dgCardGames.SelectedItems.Add(item);
+
+            await PersistSelectedCardGamesAsync();
+        }
+
+        private async void ButtonCardGameMoveDown_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedCard == null || dgCardGames == null)
+                return;
+
+            var selectedItems = dgCardGames.SelectedItems.Cast<GdItem>().ToArray();
+            if (selectedItems.Length == 0)
+                return;
+
+            int moveTo = CardGames.IndexOf(selectedItems.Last()) - selectedItems.Length + 2;
+            if (moveTo > CardGames.Count - selectedItems.Length)
+                return;
+
+            foreach (var item in selectedItems)
+                CardGames.Remove(item);
+
+            foreach (var item in selectedItems)
+                CardGames.Insert(moveTo++, item);
+
+            dgCardGames.SelectedItems.Clear();
+            foreach (var item in selectedItems)
+                dgCardGames.SelectedItems.Add(item);
+
+            await PersistSelectedCardGamesAsync();
+        }
+
+        private async void ButtonWriteSdCard_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedCard == null)
+                return;
+
+            if (CardGames.Count == 0)
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Write SD Card",
+                        "This card has no games assigned.",
+                        icon: MsBox.Avalonia.Enums.Icon.Warning
+                    )
+                    .ShowWindowDialogAsync(this);
+                return;
+            }
+
+            if (MenuKindSelected == MenuKind.None)
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Write SD Card",
+                        "Select a menu kind in Settings before writing.",
+                        icon: MsBox.Avalonia.Enums.Icon.Warning
+                    )
+                    .ShowWindowDialogAsync(this);
+                ShowSettingsTab();
+                return;
+            }
+
+            await FillDriveListAsync(true);
+
+            var dialog = new WriteSdCardWindow(
+                SelectedCard.Name,
+                DriveList,
+                SelectedDrive,
+                async () => await FillDriveListAsync(true)
+            );
+            var drive = await dialog.ShowDialog<DriveInfo>(this);
+            if (drive == null)
+                return;
+
+            SelectedDrive = drive;
+
+            // Snapshot card games into ItemList for Manager.Save without mutating CardGames.
+            Manager.ItemList.Clear();
+            foreach (var record in await AppDatabase.Instance.Cards.GetGamesForCardAsync(SelectedCard.Id))
+                Manager.ItemList.Add(LibraryScanner.ToGdItem(record));
+
+            await Save();
         }
 
         private async Task LoadItemsFromCard()
@@ -336,54 +772,6 @@ namespace GDMENUOrganizer.AvaloniaUI
             }
         }
 
-        private async void WindowDrop(object sender, DragEventArgs e)
-        {
-            if (Manager.SdPath == null)
-                return;
-
-            if (e.DataTransfer.Contains(DataFormat.File))
-            {
-                IsBusy = true;
-                var invalid = new List<string>();
-
-                try
-                {
-                    foreach (var item in e.DataTransfer.TryGetFiles() ?? [])
-                    {
-                        var path = item.Path.LocalPath;
-
-                        try
-                        {
-                            Manager.ItemList.Add(await ImageHelper.CreateGdItemAsync(path));
-                        }
-                        catch
-                        {
-                            invalid.Add(path);
-                        }
-                    }
-
-                    if (invalid.Any())
-                        await MessageBoxManager
-                            .GetMessageBoxStandard(
-                                "Ignored folders/files",
-                                string.Join(Environment.NewLine, invalid),
-                                icon: MsBox.Avalonia.Enums.Icon.Error
-                            )
-                            .ShowWindowDialogAsync(this);
-                }
-                catch (Exception) { }
-                finally
-                {
-                    IsBusy = false;
-                }
-            }
-        }
-
-        private async void ButtonSaveChanges_Click(object sender, RoutedEventArgs e)
-        {
-            await Save();
-        }
-
         private async void ButtonAbout_Click(object sender, RoutedEventArgs e)
         {
             IsBusy = true;
@@ -450,13 +838,11 @@ namespace GDMENUOrganizer.AvaloniaUI
             };
 
             if (
-                !string.IsNullOrEmpty(LibraryPath?.ToString())
-                && await LibraryPath.DirectoryExistsAsync()
+                !string.IsNullOrEmpty(LibraryPath)
+                && Directory.Exists(LibraryPath)
             )
             {
-                var startFolder = await StorageProvider.TryGetFolderFromPathAsync(
-                    LibraryPath.ToString()
-                );
+                var startFolder = await StorageProvider.TryGetFolderFromPathAsync(LibraryPath);
                 if (startFolder != null)
                     options.SuggestedStartLocation = startFolder;
             }
@@ -469,16 +855,91 @@ namespace GDMENUOrganizer.AvaloniaUI
 
         private void ButtonLibraryExplorer_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrEmpty(LibraryPath?.ToString()))
+            if (string.IsNullOrEmpty(LibraryPath))
                 return;
 
             Process.Start(
                 new ProcessStartInfo
                 {
                     UseShellExecute = true,
-                    FileName = LibraryPath.ToString(SlashMode.Native)
+                    FileName = LibraryPath
                 }
             );
+        }
+
+        private async void ButtonLibraryRefresh_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(LibraryPath))
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Library Path",
+                        "Set a library folder in Settings before refreshing.",
+                        icon: MsBox.Avalonia.Enums.Icon.Warning
+                    )
+                    .ShowWindowDialogAsync(this);
+                ShowSettingsTab();
+                return;
+            }
+
+            if (!Directory.Exists(LibraryPath))
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Library Path",
+                        $"Library folder not found:\n{LibraryPath}",
+                        icon: MsBox.Avalonia.Enums.Icon.Error
+                    )
+                    .ShowWindowDialogAsync(this);
+                return;
+            }
+
+            IsBusy = true;
+            Cursor = new Cursor(StandardCursorType.Wait);
+            try
+            {
+                var result = await LibraryScanner.RefreshAsync(LibraryPath);
+
+                Manager.ItemList.Clear();
+                foreach (var record in result.Games)
+                    Manager.ItemList.Add(LibraryScanner.ToGdItem(record));
+
+                var summary =
+                    $"Present: {result.PresentCount}\nNew: {result.NewCount}\nMissing: {result.MissingCount}";
+                if (result.Skipped.Count > 0)
+                {
+                    summary +=
+                        $"\n\nSkipped ({result.Skipped.Count}):\n"
+                        + string.Join(Environment.NewLine, result.Skipped.Take(20));
+                    if (result.Skipped.Count > 20)
+                        summary += $"\n...and {result.Skipped.Count - 20} more";
+                }
+
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Library Refresh",
+                        summary,
+                        icon: result.Skipped.Count > 0
+                            ? MsBox.Avalonia.Enums.Icon.Warning
+                            : MsBox.Avalonia.Enums.Icon.Info
+                    )
+                    .ShowWindowDialogAsync(this);
+            }
+            catch (Exception ex)
+            {
+                await MessageBoxManager
+                    .GetMessageBoxStandard(
+                        "Library Refresh",
+                        ex.Message,
+                        icon: MsBox.Avalonia.Enums.Icon.Error
+                    )
+                    .ShowWindowDialogAsync(this);
+            }
+            finally
+            {
+                Cursor = Cursor.Default;
+                IsBusy = false;
+            }
         }
 
         private async void ButtonInfo_Click(object sender, RoutedEventArgs e)
@@ -508,95 +969,6 @@ namespace GDMENUOrganizer.AvaloniaUI
             IsBusy = false;
         }
 
-        private async void ButtonSort_Click(object sender, RoutedEventArgs e)
-        {
-            IsBusy = true;
-            try
-            {
-                await Manager.SortList();
-            }
-            catch (Exception ex)
-            {
-                await MessageBoxManager
-                    .GetMessageBoxStandard(
-                        "Error",
-                        ex.Message,
-                        icon: MsBox.Avalonia.Enums.Icon.Error
-                    )
-                    .ShowWindowDialogAsync(this);
-            }
-
-            IsBusy = false;
-        }
-
-        private async void ButtonBatchRename_Click(object sender, RoutedEventArgs e)
-        {
-            if (Manager.ItemList.Count == 0)
-                return;
-
-            IsBusy = true;
-            try
-            {
-                var w = new CopyNameWindow();
-                if (!await w.ShowDialog<bool>(this))
-                    return;
-
-                var count = await Manager.BatchRenameItems(
-                    w.NotOnCard,
-                    w.OnCard,
-                    w.FolderName,
-                    w.ParseTosec
-                );
-
-                await MessageBoxManager
-                    .GetMessageBoxStandard("Done", $"{count} item(s) renamed")
-                    .ShowWindowDialogAsync(this);
-            }
-            catch (Exception ex)
-            {
-                await MessageBoxManager
-                    .GetMessageBoxStandard(
-                        "Error",
-                        ex.Message,
-                        icon: MsBox.Avalonia.Enums.Icon.Error
-                    )
-                    .ShowWindowDialogAsync(this);
-            }
-            finally
-            {
-                IsBusy = false;
-            }
-        }
-
-        private async void ButtonPreload_Click(object sender, RoutedEventArgs e)
-        {
-            if (Manager.ItemList.Count == 0)
-                return;
-
-            IsBusy = true;
-            try
-            {
-                await Manager.LoadIpAll();
-            }
-            catch (ProgressWindowClosedException)
-            {
-            }
-            catch (Exception ex)
-            {
-                await MessageBoxManager
-                    .GetMessageBoxStandard(
-                        "Error",
-                        ex.Message,
-                        icon: MsBox.Avalonia.Enums.Icon.Error
-                    )
-                    .ShowWindowDialogAsync(this);
-            }
-            finally
-            {
-                IsBusy = false;
-            }
-        }
-
         private async Task UpdateVolumeLabelAsync(DriveInfo drive)
         {
             try
@@ -622,11 +994,6 @@ namespace GDMENUOrganizer.AvaloniaUI
             catch
             {
             }
-        }
-
-        private void ButtonRefreshDrive_Click(object sender, RoutedEventArgs e)
-        {
-            _ = FillDriveListAsync(true);
         }
 
         private async Task FillDriveListAsync(bool isRefreshing = false)
@@ -851,7 +1218,11 @@ namespace GDMENUOrganizer.AvaloniaUI
                     ContentTitle = "Rename",
                     ContentHeader = "inform new name",
                     ContentMessage = "Name",
-                    InputParams = { DefaultValue = item.Name, Multiline = false },
+                    InputParams = new MsBox.Avalonia.Dto.InputParams
+                    {
+                        DefaultValue = item.Name ?? string.Empty,
+                        Multiline = false
+                    },
                     ShowInCenter = true,
                     WindowStartupLocation = WindowStartupLocation.CenterOwner,
                     ButtonDefinitions = new ButtonDefinition[]
@@ -960,126 +1331,6 @@ namespace GDMENUOrganizer.AvaloniaUI
         //    item.Name = name;
         //}
 
-        private async void GridOnKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Delete && !(e.Source is TextBox))
-            {
-                List<GdItem> toRemove = new List<GdItem>();
-                foreach (GdItem item in dg1.SelectedItems)
-                {
-                    if (item.IsMenuItem)
-                    {
-                        if (item.Ip == null)
-                        {
-                            IsBusy = true;
-                            await Manager.LoadIp(item);
-                            IsBusy = false;
-                        }
-
-                        if (item.Ip.Name != "GDMENU" && item.Ip.Name != "openMenu") //dont let the user exclude GDMENU, openMenu
-                            toRemove.Add(item);
-                    }
-                    else
-                    {
-                        toRemove.Add(item);
-                    }
-                }
-
-                foreach (var item in toRemove)
-                    Manager.ItemList.Remove(item);
-
-                e.Handled = true;
-            }
-        }
-
-        private async void ButtonAddGames_Click(object sender, RoutedEventArgs e)
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(
-                new FilePickerOpenOptions
-                {
-                    Title = "Select File(s)",
-                    AllowMultiple = true,
-                    FileTypeFilter = new[] { _dreamcastFileType }
-                }
-            );
-
-            var paths = files
-                .Select(f => f.TryGetLocalPath())
-                .Where(p => !string.IsNullOrEmpty(p))
-                .ToArray();
-
-            if (paths.Length > 0)
-            {
-                IsBusy = true;
-
-                var invalid = await Manager.AddGames(paths);
-
-                if (invalid.Any())
-                    await MessageBoxManager
-                        .GetMessageBoxStandard(
-                            "Ignored folders/files",
-                            string.Join(Environment.NewLine, invalid),
-                            icon: MsBox.Avalonia.Enums.Icon.Error
-                        )
-                        .ShowWindowDialogAsync(this);
-
-                IsBusy = false;
-            }
-        }
-
-        private void ButtonRemoveGame_Click(object sender, RoutedEventArgs e)
-        {
-            //todo prevent not remove gdmenu!
-            foreach (var item in Enumerable.Cast<GdItem>(dg1.SelectedItems).ToArray())
-                Manager.ItemList.Remove(item);
-        }
-
-        private void ButtonMoveUp_Click(object sender, RoutedEventArgs e)
-        {
-            var selectedItems = Enumerable.Cast<GdItem>(dg1.SelectedItems).ToArray();
-
-            if (!selectedItems.Any())
-                return;
-
-            int moveTo = Manager.ItemList.IndexOf(selectedItems.First()) - 1;
-
-            if (moveTo < 0)
-                return;
-
-            foreach (var item in selectedItems)
-                Manager.ItemList.Remove(item);
-
-            foreach (var item in selectedItems)
-                Manager.ItemList.Insert(moveTo++, item);
-
-            dg1.SelectedItems.Clear();
-            foreach (var item in selectedItems)
-                dg1.SelectedItems.Add(item);
-        }
-
-        private void ButtonMoveDown_Click(object sender, RoutedEventArgs e)
-        {
-            var selectedItems = Enumerable.Cast<GdItem>(dg1.SelectedItems).ToArray();
-
-            if (!selectedItems.Any())
-                return;
-
-            int moveTo = Manager.ItemList.IndexOf(selectedItems.Last()) - selectedItems.Length + 2;
-
-            if (moveTo > Manager.ItemList.Count - selectedItems.Length)
-                return;
-
-            foreach (var item in selectedItems)
-                Manager.ItemList.Remove(item);
-
-            foreach (var item in selectedItems)
-                Manager.ItemList.Insert(moveTo++, item);
-
-            dg1.SelectedItems.Clear();
-            foreach (var item in selectedItems)
-                dg1.SelectedItems.Add(item);
-        }
-
         private async void ButtonSearch_Click(object sender, RoutedEventArgs e)
         {
             if (Manager.ItemList.Count == 0 || string.IsNullOrWhiteSpace(Filter))
@@ -1130,76 +1381,6 @@ namespace GDMENUOrganizer.AvaloniaUI
 
             var exportFileManager = new ExportFileManager(file);
             await exportFileManager.WriteItems(Manager.ItemList);
-        }
-
-        private async void ButtonImportList_Click(object sender, RoutedEventArgs eventArgs)
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(
-                new FilePickerOpenOptions
-                {
-                    AllowMultiple = false,
-                    FileTypeFilter = new[]
-                    {
-                        new FilePickerFileType("JSON File") { Patterns = new[] { "*.json" } }
-                    }
-                }
-            );
-            var file = files.FirstOrDefault()?.TryGetLocalPath();
-            if (file == null)
-                return;
-
-            var exportFileManager = new ExportFileManager(file);
-            var importFile = await exportFileManager.ReadItems();
-
-            if (importFile == null)
-                return;
-
-            // add everything except menu items by union to our list.
-            var comparer = new GdItem.ImportComparer();
-            var newItems = importFile.ItemList.Where(
-                x =>
-                    !Manager.ItemList.Any(
-                        y =>
-                            comparer.GetHashCode(x) == comparer.GetHashCode(y)
-                            && comparer.Equals(x, y)
-                    )
-            );
-            await Manager.AddGames(
-                newItems
-                    .Where(x => x.SourcePath != null)
-                    .Select(x => x.SourcePath.ToString())
-                    .ToArray()
-            );
-        }
-
-        private async void ButtonErrorReport_Click(object sender, RoutedEventArgs eventArgs)
-        {
-            var storageFile = await StorageProvider.SaveFilePickerAsync(
-                new FilePickerSaveOptions
-                {
-                    FileTypeChoices = new[]
-                    {
-                        new FilePickerFileType("Text File") { Patterns = new[] { "*.txt" } }
-                    }
-                }
-            );
-
-            var file = storageFile?.TryGetLocalPath();
-            if (file == null)
-                return;
-
-            await using var writer = File.Create(file);
-            var sb = new StringBuilder();
-            foreach (var item in Manager.ItemList.Where(x => x.HasError))
-            {
-                sb.Clear();
-                sb.AppendLine($"# {item.Name}");
-                sb.AppendLine("  Source Path:");
-                sb.AppendLine($"  {item.SourcePath}");
-                sb.AppendLine("  Error:");
-                sb.AppendLine($"  {item.ErrorState}");
-                writer.Write(Encoding.UTF8.GetBytes(sb.ToString()));
-            }
         }
     }
 }

@@ -8,6 +8,10 @@ alwaysApply: true
 Follow the canonical developer rules in [`.AI/`](../../.AI/README.md).
 
 1. Read [`.AI/README.md`](../../.AI/README.md).
-2. Obey every file listed under **Active rules** in that folder (currently [`.AI/git-workflow.md`](../../.AI/git-workflow.md)).
+2. Obey every file listed under **Active rules** (including [`.AI/git-workflow.md`](../../.AI/git-workflow.md) and [`.AI/commit-and-pr-style.md`](../../.AI/commit-and-pr-style.md)).
 
-Do not duplicate those rules here — edit the `.AI/*.md` sources only.
+## Hard ban: commit/PR attribution
+
+Never add `--trailer` to `git commit`. Never add `Co-authored-by`, `Made-with`, or other tool branding to commits or PRs. See [`.AI/commit-and-pr-style.md`](../../.AI/commit-and-pr-style.md).
+
+Do not duplicate rule bodies here — edit the `.AI/*.md` sources only.

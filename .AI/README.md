@@ -15,6 +15,7 @@ Tool-specific entry points only **point here** — do not duplicate rule bodies 
 | File | Topic |
 |------|--------|
 | [git-workflow.md](./git-workflow.md) | Protected `main`, feature branches, PRs only |
+| [commit-and-pr-style.md](./commit-and-pr-style.md) | No trailers or tool branding in commits/PRs |
 
 ## Recommended next rules
 
@@ -28,3 +29,13 @@ Suggested additions (create when you want them enforced):
 6. **`docs.md`** — Keep `README.md` aligned with real UX when behavior changes; screenshots under `docs/` may lag — call that out if still outdated.
 
 When adding a rule: put the full markdown in `.AI/`, list it under **Active rules**, and leave tool entry points unchanged.
+
+## Local setup
+
+Point Git at the repo hooks (strips Cursor/Claude attribution trailers as a backstop):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Also turn off Cursor **Settings → Agent → Attribution** (Commit + PR) so the product does not inject `--trailer` / “Made with Cursor” in the first place.

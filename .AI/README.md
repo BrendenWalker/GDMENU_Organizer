@@ -32,10 +32,13 @@ When adding a rule: put the full markdown in `.AI/`, list it under **Active rule
 
 ## Local setup
 
-Point Git at the repo hooks (strips Cursor/Claude attribution trailers as a backstop):
+Install repository Git hooks (strips Cursor/Claude attribution trailers as a backstop):
 
 ```bash
-git config core.hooksPath .githooks
+./setup-hooks.sh          # Linux / macOS / Git Bash
+setup-hooks.bat           # Windows cmd / PowerShell
 ```
 
-Also turn off Cursor **Settings → Agent → Attribution** (Commit + PR) so the product does not inject `--trailer` / “Made with Cursor” in the first place.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for full contributor and AI guidance setup.
+
+Also turn off Cursor **Settings → Agent → Attribution** (Commit + PR) so the product does not inject `--trailer` / "Made with Cursor" in the first place.

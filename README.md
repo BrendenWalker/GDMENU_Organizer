@@ -6,6 +6,8 @@ GDEMU expects a specific folder layout on the SD card. Getting that wrong slows 
 
 Forked from [GDMENU Card Manager](https://github.com/sonik-br/GDMENUCardManager) by Sonik.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch workflow, AI guidance, and Git hook setup.
+
 ![Main window](docs/capture1.png)
 ![Info window](docs/capture2.png)
 

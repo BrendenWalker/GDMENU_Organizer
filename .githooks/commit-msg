@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Strips tool/vendor attribution trailers from commit messages.
-# Enable once per clone: git config core.hooksPath .githooks
+# Enable once per clone:
+#   ./setup-hooks.sh
+#   setup-hooks.bat
+# Or: git config core.hooksPath .githooks
 
 set -euo pipefail
 msg_file="$1"

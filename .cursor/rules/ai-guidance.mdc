@@ -1,0 +1,13 @@
+---
+description: Follow tool-agnostic AI guidance in .AI/
+alwaysApply: true
+---
+
+# Project AI guidance
+
+Follow the canonical developer rules in [`.AI/`](../../.AI/README.md).
+
+1. Read [`.AI/README.md`](../../.AI/README.md).
+2. Obey every file listed under **Active rules** in that folder (currently [`.AI/git-workflow.md`](../../.AI/git-workflow.md)).
+
+Do not duplicate those rules here — edit the `.AI/*.md` sources only.
